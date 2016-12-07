@@ -64,12 +64,12 @@ def load_data(datafile,header=True):
     out = []
     labels=[]
     print(data.shape)
-    label_dict={1:[0,1],0:[1,0]}
+    #0:NOT SINGLETON, 1:SINGLETON
+    label_dict={0:[0,1],1:[1,0]}
     # populate the tuple list with the data
     for i in range(data.shape[0]):
         fart = list((data[i, :].tolist()))  # don't mind this variable name
         out.append(fart)
-        #two classes one hot coding:two classes are [NS,S] y=1:[0,1]; y=0:[1,0]
         labels.append(label_dict[y[i]])
 
     return np.array(out,dtype=np.float32),np.array(labels,dtype=np.float32)
@@ -117,7 +117,7 @@ def plot_tf(train,valid):
 
 
 def precision_recall(predictions,labels):
-#TP=np.sum(np.argmax(predictions, 1) == np.argmax(batch_labels, 1) == 0)
+    # TP=np.sum(np.argmax(predictions, 1) == np.argmax(batch_labels, 1) == 0)
 
     TP=0
     predicted_sgt=np.sum(np.argmax(predictions,1)==0)
@@ -146,9 +146,9 @@ def get_error_cases(predictions,labels):
     false_sgt=[]
     false_nsgt=[]
     for i in range(len(predictions)):
-            if np.argmax(predictions[i]) == 0 and  np.argmax(labels[i]) == 1:
+            if np.argmax(predictions[i]) == 0 and np.argmax(labels[i]) == 1:
                 false_sgt.append(i)
-            elif np.argmax(predictions[i]) == 1 and  np.argmax(labels[i]) == 0:
+            elif np.argmax(predictions[i]) == 1 and np.argmax(labels[i]) == 0:
                 false_nsgt.append(i)
     return false_sgt,false_nsgt
 
@@ -157,12 +157,12 @@ def get_error_cases(predictions,labels):
 
 
 #set of a tf graph
-def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, learning_rate=0.1):
+def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, starter_learning_rate=0.1):
     
     input_size=X.shape[1]#dimension of each input vector
     print('================num_nodes_hidden,batch_size:',num_nodes,batch_size)
     print('================input_feature_size:',input_size)
-    print('================learning rate:',learning_rate)
+    print('================learning rate:',starter_learning_rate)
     num_labels=2
 
     graph = tf.Graph()
@@ -176,7 +176,7 @@ def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, l
         tf_valid_dataset = tf.constant(valid_dataset)
         tf_test_dataset = tf.constant(test_dataset)
 
-        # Variables.
+        # Variables.the tf.Variable can be of any shape, or a tensor, so in this case it is the weight matrix of the dimension specified.this constructor gives the type and shpae of the Variable. After construction they are fixed but value can be changed using a assign method.actually the doc says you also can change the shape.
         weights_1 = tf.Variable(
           tf.truncated_normal([input_size, num_nodes]))
         biases_1 = tf.Variable(tf.zeros([num_nodes]))
@@ -189,9 +189,15 @@ def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, l
         logits = tf.matmul(relu_layer, weights_2) + biases_2
         loss = tf.reduce_mean(
           tf.nn.softmax_cross_entropy_with_logits(logits, tf_train_labels))
+        
+        #decay learning rate
+        global_step = tf.Variable(0, trainable=False)
+        #starter_learning_rate = 0.1
+        learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step, 10000, 0.96, staircase=True)
+
 
         # Optimizer.
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss,global_step=global_step)
 
         # Predictions for the training, validation, and test data.
         train_prediction = tf.nn.softmax(logits)
@@ -220,6 +226,7 @@ def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, l
             # Pick an offset within the training data, which has been randomized.
             # Note: we could use better randomization across epochs.
             offset = (step * batch_size) % (train_labels.shape[0] - batch_size)
+            #print ("offset:",offset)
             # Generate a minibatch.
             batch_data = train_dataset[offset:(offset + batch_size), :]
             batch_labels = train_labels[offset:(offset + batch_size), :]
@@ -348,16 +355,16 @@ print ("non-singleton,singleton in the original dataset:", len(notsgt_data),len(
 
 #construct the entire undersampled dataset
 random.seed(2335)
-num_notsgt_samples=100000
-notsgt_inds=random.sample(xrange(len(notsgt_data)),num_notsgt_samples)
-undersampled_notsgt=notsgt_data[notsgt_inds]
-undersampled_notsgt_labels=notsgt_labels[notsgt_inds]
-undersampled_notsgt_nominal=notsgt_nominal[notsgt_inds]
+num_sgt_samples=100000
+sgt_inds=random.sample(xrange(len(singleton_data)), num_sgt_samples)
+undersampled_sgt=singleton_data[sgt_inds]
+undersampled_sgt_labels=singleton_labels[sgt_inds]
+undersampled_sgt_nominal=singleton_nominal[sgt_inds]
 
 #construct the whole data set
-undersampled_data=np.concatenate((undersampled_notsgt,singleton_data), axis=0)
-undersampled_labels=np.concatenate((undersampled_notsgt_labels,singleton_labels), axis=0)
-undersampled_nominal=np.concatenate((undersampled_notsgt_nominal,singleton_nominal), axis=0)
+undersampled_data=np.concatenate((undersampled_sgt,notsgt_data), axis=0)
+undersampled_labels=np.concatenate((undersampled_sgt_labels,notsgt_labels), axis=0)
+undersampled_nominal=np.concatenate((undersampled_sgt_nominal,notsgt_nominal), axis=0)
 
 #construct the whole labels
 #undersampled_notsgt_labels=
@@ -392,7 +399,7 @@ print (train_dataset.shape)
 
 
 # tune hyper-parameters
-t,v,l,fs,fns=run_tf(24,128,20000,10,0.1)
+t,v,l,fs,fns=run_tf(24,256,40000,20,0.1)
 
 if output_error:
     print ("train_false_non-singleton:\n")
