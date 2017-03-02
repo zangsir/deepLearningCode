@@ -79,8 +79,9 @@ def load_data(datafile,header=True):
 
 def randomize(dataset, labels,nominals):
     seed = 2335
-    random.seed(seed)
+    np.random.seed(seed)
     permutation = np.random.permutation(labels.shape[0])
+    #print('permutation:',permutation)
     shuffled_dataset = dataset[permutation,:]
     shuffled_labels = labels[permutation]
     shuffled_nominals = nominals[permutation]
@@ -157,7 +158,7 @@ def get_error_cases(predictions,labels):
 
 
 #set of a tf graph
-def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, starter_learning_rate=0.1):
+def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, starter_learning_rate=0.1,regularization_lambda = 0.05, regularization=False):
     
     input_size=X.shape[1]#dimension of each input vector
     print('================num_nodes_hidden,batch_size:',num_nodes,batch_size)
@@ -183,12 +184,20 @@ def run_tf(num_nodes= 1024,batch_size = 128,num_steps = 10000,report_step=250, s
         weights_2 = tf.Variable(
           tf.truncated_normal([num_nodes, num_labels]))
         biases_2 = tf.Variable(tf.zeros([num_labels]))
+        
+        
 
         # Training computation.
         relu_layer=tf.nn.relu(tf.matmul(tf_train_dataset, weights_1) + biases_1)#notice the shape of tf_train_dataset and weights_1
         logits = tf.matmul(relu_layer, weights_2) + biases_2
-        loss = tf.reduce_mean(
-          tf.nn.softmax_cross_entropy_with_logits(logits, tf_train_labels))
+        if regularization:
+            #L2 regularization
+            #regularization_lambda = 0.05
+            reg = regularization_lambda*tf.nn.l2_loss(weights_1) + regularization_lambda*tf.nn.l2_loss(weights_2)
+        
+            loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, tf_train_labels) + reg)
+        else:
+            loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, tf_train_labels))
         
         #decay learning rate
         global_step = tf.Variable(0, trainable=False)
@@ -399,20 +408,19 @@ print (train_dataset.shape)
 
 
 # tune hyper-parameters
-t,v,l,fs,fns=run_tf(24,256,40000,20,0.1)
+t,v,l,fs,fns=run_tf(24,256,40000,20,0.1,0.001,True)
 
 if output_error:
     print ("train_false_non-singleton:\n")
-    # print ("FNS:",fns[-1])
-    for line in train_nominal[fns[-1]]:
-        print (line)
+    print ("FNS:",fns[-1])
+    if len(fs[-1])>0:
+        for line in train_nominal[fns[-1]]:
+            print (line)
     print ("=================\ntrain_false_singleton:\n")
     if len(fs[-1])>0:
         # print ("last fs:",fs[-1])
         for line in train_nominal[fs[-1]]:
             print (line)
-    # else:
-      #  print (fs)
 
 
 
